@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+deepeval
+ollama
+google-genai
+python-dotenv

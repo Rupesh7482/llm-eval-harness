@@ -2,3 +2,4 @@ deepeval
 ollama
 google-genai
 python-dotenv
+pypdf

@@ -8,3 +8,5 @@ data/chunks.json
 data/golden*.json
 data/answers*.json
 data/scores*.json
+data/verdicts*.json
+data/yesno*.json

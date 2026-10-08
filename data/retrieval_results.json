@@ -1,0 +1,112 @@
+[
+  {
+    "id": 1,
+    "correct_chunks": [
+      1
+    ],
+    "rank": 1,
+    "top_chunks": [
+      1,
+      26,
+      27
+    ]
+  },
+  {
+    "id": 2,
+    "correct_chunks": [
+      3,
+      4
+    ],
+    "rank": 8,
+    "top_chunks": [
+      1,
+      26,
+      27
+    ]
+  },
+  {
+    "id": 3,
+    "correct_chunks": [
+      7,
+      8
+    ],
+    "rank": 1,
+    "top_chunks": [
+      7,
+      19,
+      0
+    ]
+  },
+  {
+    "id": 4,
+    "correct_chunks": [
+      10
+    ],
+    "rank": 2,
+    "top_chunks": [
+      9,
+      10,
+      8
+    ]
+  },
+  {
+    "id": 5,
+    "correct_chunks": [
+      13
+    ],
+    "rank": 1,
+    "top_chunks": [
+      13,
+      16,
+      21
+    ]
+  },
+  {
+    "id": 6,
+    "correct_chunks": [
+      16
+    ],
+    "rank": 1,
+    "top_chunks": [
+      16,
+      13,
+      17
+    ]
+  },
+  {
+    "id": 7,
+    "correct_chunks": [
+      19
+    ],
+    "rank": 1,
+    "top_chunks": [
+      19,
+      7,
+      0
+    ]
+  },
+  {
+    "id": 9,
+    "correct_chunks": [
+      24
+    ],
+    "rank": 2,
+    "top_chunks": [
+      17,
+      24,
+      23
+    ]
+  },
+  {
+    "id": 10,
+    "correct_chunks": [
+      26
+    ],
+    "rank": 1,
+    "top_chunks": [
+      26,
+      13,
+      12
+    ]
+  }
+]

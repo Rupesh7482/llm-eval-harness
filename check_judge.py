@@ -1,73 +1,95 @@
 import json
 import os
+import sys
+import time
 
-import ollama
+from google.genai import errors
 
-# Corrections to your labels, after re-reading the paragraphs.
-OVERRIDES = {
-    "gemini (cloud)|2": True,        # you typed "yy" by mistake, so it was saved as False
-    "llama3.2 (Ollama)|4": False,    # answer adds "personal reflection", not in the paragraph
-    "llama3.2 (Ollama)|5": False,    # answer adds "healthy and harmonious connections", not in the paragraph
-}
+from evaluate import ask_gemini, ask_ollama
 
-labels = json.load(open("data/human_labels.json"))
-labels.update(OVERRIDES)
-json.dump(labels, open("data/human_labels.json", "w"), indent=2)
-print(sum(labels.values()), "of", len(labels), "marked faithful by you")
+# run as:  python run_exam.py          (clean exam)
+#          python run_exam.py noisy    (exam with wrong paragraphs mixed in)
+MODE = sys.argv[1] if len(sys.argv) > 1 else "clean"
 
-# ---- Part 1: the earlier DeepEval judges ----
-for file, name in [
-    ("data/scores_faithfulness.json", "llama3.2 (3B) judge"),
-    ("data/scores_faithfulness_8b.json", "llama3.1 (8B) judge"),
-]:
-    scores = json.load(open(file))
-    agree = sum((scores[k]["faithfulness"] >= 0.5) == labels[k] for k in labels)
-    print(f"{name}: agreement {agree} of {len(labels)}")
+golden = json.load(open("data/golden.json"))
+chunks = json.load(open("data/chunks.json"))
+retrieval = {r["id"]: r for r in json.load(open("data/retrieval_results.json"))}
 
-# ---- Part 2: the "list the unsupported facts" judge ----
-VERDICTS = "data/verdicts_v2.json"
-golden = {item["id"]: item for item in json.load(open("data/golden.json"))}
-answers = json.load(open("data/answers.json"))
-verdicts = json.load(open(VERDICTS)) if os.path.exists(VERDICTS) else {}
+CACHE = "data/answers.json" if MODE == "clean" else "data/answers_noisy.json"
+answers = json.load(open(CACHE)) if os.path.exists(CACHE) else {}
 
-PROMPT = """CONTEXT:
+PROMPT = """Answer the question using ONLY the context below.
+If the context does not contain the answer, say you don't know.
+Keep the answer to 1-3 sentences.
+
+CONTEXT:
 {context}
 
-ANSWER:
-{answer}
+QUESTION: {question}"""
 
-Check the ANSWER against the CONTEXT.
-List every fact, word or idea in the ANSWER that is NOT stated in the CONTEXT.
-Ignore spelling mistakes, missing spaces, and facts that the ANSWER leaves out.
-If everything in the ANSWER is stated in the CONTEXT, reply with the single word NONE.
-Otherwise, list the unsupported items."""
+MAX_TRIES = 6
+RETRY_CODES = (429, 500, 502, 503, 504)  # overloaded / rate limited / temporary
 
-for key in labels:
-    if key in verdicts:
-        continue  # already judged, skip
-    ans = answers[key]
-    prompt = PROMPT.format(
-        context=golden[ans["question_id"]]["context"], answer=ans["answer"]
-    )
-    reply = ollama.chat(
-        model="llama3.1:8b",
-        messages=[{"role": "user", "content": prompt}],
-        options={"temperature": 0},  # same input gives the same answer every time
-    )["message"]["content"]
-    faithful = reply.strip().upper().startswith("NONE")
-    verdicts[key] = {"faithful": faithful, "reply": reply}
-    json.dump(verdicts, open(VERDICTS, "w"), indent=2)
 
-bad = [k for k in labels if not labels[k]]
-caught = [k for k in bad if not verdicts[k]["faithful"]]
-false_alarms = [k for k in labels if labels[k] and not verdicts[k]["faithful"]]
-agree = sum(verdicts[k]["faithful"] == labels[k] for k in labels)
+def get_context(item):
+    if MODE == "clean":
+        return item["context"]
+    r = retrieval[item["id"]]
+    # the two highest-ranked paragraphs that are NOT correct
+    noise = [c for c in r["top_chunks"] if c not in r["correct_chunks"]][:2]
+    noise_text = "\n\n".join(chunks[c] for c in noise)
+    return noise_text + "\n\n" + item["context"]  # wrong paragraphs first, right one last
 
-print("\nList-the-unsupported-facts judge (llama3.1 8B)")
-print(f"  agreement: {agree} of {len(labels)}")
-print(f"  made-up answers caught: {len(caught)} of {len(bad)}")
-print(f"  false alarms (good answers flagged): {len(false_alarms)}")
 
-print("\nWhat the judge said on the cases that matter:")
-for k in bad + false_alarms:
-    print(" ", k, "->", verdicts[k]["reply"][:200].replace("\n", " "))
+def ask_with_retry(name, fn, prompt, qid):
+    """Returns (result, retries_used). result is None if every try failed."""
+    for attempt in range(1, MAX_TRIES + 1):
+        try:
+            return fn(prompt), attempt - 1
+        except errors.APIError as error:
+            # NEW: a daily-quota 429 will not clear by waiting, so stop retrying at once
+            if error.code == 429 and "PerDay" in str(error):
+                print(f"  {name}: daily quota used up, stopping this model.")
+                return None, attempt - 1
+            if error.code not in RETRY_CODES:
+                print(f"  {name} question {qid}: error {error.code}, skipping.")
+                return None, attempt - 1
+            if attempt == MAX_TRIES:
+                break
+            wait = min(20 * attempt, 90)  # 20s, 40s, 60s, 80s, 90s
+            print(f"  {name} question {qid}: busy/limited ({error.code}), "
+                  f"retry {attempt}/{MAX_TRIES - 1} in {wait}s")
+            time.sleep(wait)
+    print(f"  {name} question {qid}: gave up after {MAX_TRIES} tries, skipping.")
+    return None, MAX_TRIES - 1
+
+
+MODELS = [("llama3.2 (Ollama)", ask_ollama), ("gemini (cloud)", ask_gemini)]
+
+for name, fn in MODELS:
+    skipped = []
+    for item in golden:
+        key = f"{name}|{item['id']}"
+        if key in answers:
+            continue  # already answered, never spend a call twice
+
+        prompt = PROMPT.format(context=get_context(item), question=item["question"])
+        result, retries = ask_with_retry(name, fn, prompt, item["id"])
+
+        if result is None:
+            skipped.append(item["id"])
+            continue  # skip this question, keep going with the rest
+
+        answers[key] = {"model": name, "question_id": item["id"], "retries": retries, **result}
+        with open(CACHE, "w") as f:
+            json.dump(answers, f, indent=2)  # saved after every answer
+        print(name, "answered question", item["id"], "in", result["total_ms"], "ms",
+              f"(retries: {retries})")
+
+        if "gemini" in name:
+            time.sleep(2)  # small gap so we don't trigger the rate limit
+
+    if skipped:
+        print(f"{name}: skipped questions {skipped}. Run this script again to fill them in.")
+
+print(MODE, "mode:", len(answers), "answers saved in total")

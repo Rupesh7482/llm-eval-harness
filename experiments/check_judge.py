@@ -5,7 +5,6 @@ import time
 
 from google.genai import errors
 
-from evaluate import ask_gemini, ask_ollama
 
 # run as:  python run_exam.py          (clean exam)
 #          python run_exam.py noisy    (exam with wrong paragraphs mixed in)

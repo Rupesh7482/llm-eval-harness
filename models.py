@@ -1,11 +1,15 @@
+"""Two functions that ask a model a question and time the answer.
+
+ask_ollama  -> Llama 3.2 running on this computer (via Ollama)
+ask_gemini  -> Gemini running in Google's cloud
+Both return the same dictionary, so the rest of the project treats them the same way.
+"""
 import os
 import time
 
 import ollama
 from dotenv import load_dotenv
 from google import genai
-from google.genai import errors
-import pandas as pd
 
 load_dotenv()  # reads GOOGLE_API_KEY from your .env file
 gemini_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -59,41 +63,3 @@ def build_result(answer, first_token_seconds, total_seconds, tokens):
         "tokens": tokens,
         "tokens_per_sec": round(tokens / total_seconds, 1),
     }
-
-
-if __name__ == "__main__":
-    PROMPTS = [
-    "What is a RAG system? Answer in two sentences.",
-    "What does a vector database do? Answer in two sentences.",
-    "Explain what an embedding is in two sentences.",
-    "What is the difference between precision and recall? Answer in two sentences.",
-    "What is chunking in RAG? Answer in two sentences.",
-]
-
-
-def call_with_retry(fn, prompt, attempts=4, wait_seconds=15):
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn(prompt)
-        except errors.ServerError as error:  # temporary Google-side problems (5xx)
-            print(f"  attempt {attempt} failed: {error.code}")
-            if attempt == attempts:
-                raise
-            time.sleep(wait_seconds)
-
-
-def run_benchmark():
-    rows = []
-    models = [("llama3.2 (Ollama)", ask_ollama), ("gemini (cloud)", ask_gemini)]
-    for name, fn in models:
-        call_with_retry(fn, "Say hello.")  # warm-up call, not recorded
-        for i, prompt in enumerate(PROMPTS, start=1):
-            result = call_with_retry(fn, prompt)
-            rows.append({"model": name, "question_id": i, "prompt": prompt, **result})
-            print(name, i, result["total_ms"], "ms")
-            pd.DataFrame(rows).to_csv("data/latency_raw.csv", index=False)
-    return pd.DataFrame(rows)
-
-
-if __name__ == "__main__":
-    run_benchmark()

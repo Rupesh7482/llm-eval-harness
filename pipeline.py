@@ -102,8 +102,11 @@ def ask_with_retry(name, fn, prompt, qid):
 
 def step_exam(mode):
     golden = load("data/golden.json")
-    chunks = load("data/chunks.json")
-    retrieval = {r["id"]: r for r in load("data/retrieval_results.json")}
+    chunks = []
+    retrieval = {}
+    if mode == "noisy":  # only the noisy exam needs the chunks and the search results
+        chunks = load("data/chunks.json")
+        retrieval = {r["id"]: r for r in load("data/retrieval_results.json")}
     cache = "data/answers.json" if mode == "clean" else "data/answers_noisy.json"
     answers = load(cache) if os.path.exists(cache) else {}
 
